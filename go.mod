@@ -2,6 +2,8 @@ module grpc_proxy
 
 go 1.15
 
+replace google.golang.org/grpc => ../grpc-go
+
 require (
 	github.com/golang/protobuf v1.4.3
 	google.golang.org/grpc v1.34.0

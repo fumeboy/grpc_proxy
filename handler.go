@@ -1,11 +1,11 @@
 package proxy
 
 import (
-	"context"
+	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"io"
+	"math"
 	"time"
 )
 
@@ -29,74 +29,70 @@ func handler(_ interface{}, StreamAnP grpc.ServerStream) (err error) {
 		return err
 	}
 
-	/*
-		如果要读 metadata ， 用下列代码
-
-		if md, ok := metadata.FromIncomingContext(StreamAnP.Context()); ok {
-			if _, ok := md[key]; ok {
-				// ***
-			}
-		}
-	*/
-
 	var conn *grpc.ClientConn
 	if conn,ok = conns[endpoint]; !ok { // conn 复用
-		conn, err = grpc.DialContext(globalContext, endpoint, grpc.WithCodec(Codec()), grpc.WithInsecure(), grpc.WithTimeout(10*time.Millisecond))
+		conn, err = grpc.DialContext(globalContext, endpoint, grpc.WithInsecure(), grpc.WithTimeout(10*time.Millisecond))
 		if err != nil {
 			return err
 		}
 		conns[endpoint] = conn
 	}
+	reader := newReader(StreamAnP)
 
+	if err := reader.recvMsg(math.MaxInt32/2); err == nil {
+		fmt.Println(1, reader.header, reader.payload)
+	}else{
+	}
+	fmt.Println(reader)
 	// 新发起一个 Stream `Proxy <-> B`
-	CtxBnP, CancelBnP := context.WithCancel(StreamAnP.Context())
-	StreamBnP, err := grpc.NewClientStream(CtxBnP, clientStreamDescForProxying, conn, fullMethodName)
-	if err != nil {
-		panic(err)
-		return err
-	}
+	//CtxBnP, CancelBnP := context.WithCancel(StreamAnP.Context())
+	//StreamBnP, err := grpc.NewClientStream(CtxBnP, clientStreamDescForProxying, conn, fullMethodName)
+	//if err != nil {
+	//	panic(err)
+	//	return err
+	//}
 
-	// 发送，A->B
-	ErrChanA2B := forwardA2B(StreamAnP, StreamBnP)
-	// 返回，B->A
-	ErrChanB2A := forwardB2A(StreamBnP, StreamAnP)
-
-	// 数据流结束处理 & 错误处理
-	for i := 0; i < 2; i++ {
-		select {
-		case err = <-ErrChanA2B:
-			if err == io.EOF {
-				// 正常结束
-				_ = StreamBnP.CloseSend()
-				break
-			} else {
-				// 错误处理 (如链接断开、读错误等)
-				CancelBnP()
-				return status.Errorf(codes.Internal, "failed proxying s2c: %v", err)
-			}
-		case err = <-ErrChanB2A:
-			// 设置 Trailer
-			StreamAnP.SetTrailer(StreamBnP.Trailer())
-			if err != io.EOF {
-				return err
-			}
-			return nil
-		}
-	}
+	//// 发送，A->B
+	//ErrChanA2B := forwardA2B(StreamAnP, StreamBnP)
+	//// 返回，B->A
+	//ErrChanB2A := forwardB2A(StreamBnP, StreamAnP)
+	//
+	//// 数据流结束处理 & 错误处理
+	//for i := 0; i < 2; i++ {
+	//	select {
+	//	case err = <-ErrChanA2B:
+	//		if err == io.EOF {
+	//			// 正常结束
+	//			_ = StreamBnP.CloseSend()
+	//			break
+	//		} else {
+	//			// 错误处理 (如链接断开、读错误等)
+	//			CancelBnP()
+	//			return status.Errorf(codes.Internal, "failed proxying s2c: %v", err)
+	//		}
+	//	case err = <-ErrChanB2A:
+	//		// 设置 Trailer
+	//		StreamAnP.SetTrailer(StreamBnP.Trailer())
+	//		if err != io.EOF {
+	//			return err
+	//		}
+	//		return nil
+	//	}
+	//}
 	return status.Errorf(codes.Internal, "proxy should never reach this stage.")
 }
 
 func forwardA2B(src grpc.ServerStream, dst grpc.ClientStream) chan error {
 	ret := make(chan error, 1)
+	reader := newReader(src)
+	writer := newWriter(dst)
 	go func() {
-		// *frame即为我们自定义codec中使用到的数据结构
-		f := &frame{}
 		for {
-			if err := src.RecvMsg(f); err != nil {
+			if err := reader.recvMsg(math.MaxInt32/2); err != nil {
 				ret <- err
 				break
 			}
-			if err := dst.SendMsg(f); err != nil {
+			if err := writer.sendMsg(reader.header[:], reader.payload); err != nil {
 				ret <- err
 				break
 			}
@@ -107,10 +103,11 @@ func forwardA2B(src grpc.ServerStream, dst grpc.ClientStream) chan error {
 
 func forwardB2A(src grpc.ClientStream, dst grpc.ServerStream) chan error {
 	ret := make(chan error, 1)
+	reader := newReader(src)
+	writer := newWriter(dst)
 	go func() {
-		f := &frame{}
 		for i := 0; ; i++ {
-			if err := src.RecvMsg(f); err != nil {
+			if err := reader.recvMsg(math.MaxInt32/2); err != nil {
 				ret <- err
 				break
 			}
@@ -127,7 +124,7 @@ func forwardB2A(src grpc.ClientStream, dst grpc.ServerStream) chan error {
 					break
 				}
 			}
-			if err := dst.SendMsg(f); err != nil {
+			if err := writer.sendMsg(reader.header[:], reader.payload); err != nil {
 				ret <- err
 				break
 			}
