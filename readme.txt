@@ -1,25 +1,40 @@
-1. 特殊的编解码-codec
+# grpc proxy
 
-我们知道，gRPC在收到消息后，会根据protobuf的codec来对消息进行编解码。
-然而，在proxy的内部，其既需要作为server端接收数据，又需要作为client端发送数据。
-而对于数据在proxy内部转发的时候，不需要对其进行任何形式的编解码
-换句话说，只需要将数据当成原始裸数据，直接转发即可。故不可以采用gRPC自带的codec
-因此，在gRPC中，对于收到的protobuf消息，我们需要采用默认的protobuf codec
-而对于proxy内部的数据转发我们需要一个对协议的无感知仅作转发的codec
+简单的实现 grpc 代理
 
-2. 流控制器-stream director
+主要参考： https://github.com/mwitkow/grpc-proxy
+它也是目前找到的唯一的代理实现
 
-为了实现在编解码中说到的，在前后端服务之间做到数据的正确转发
-当proxy接收到任何一个请求流之后，需要根据该流携带的信息，判断出正确的对应的目的方
-并建立到该目的方的链接connection，从而将请求流通过该connection发送到目的方
+## codec
 
-3. 数据处理器-stream handler
+对于 contentSubtype == "" 的消息 (grpc/rpc_util.go/setCallInfoCodec)，我们需要采用默认的 protobuf codec
+对于要转发的数据，我们需要一个对协议的无感知仅作转发的 codec
+故实现 ./codec.go/rawCodec
 
-当获得到 connection 之后，便需要一个数据处理的handler，通过该connection去真正操作数据的转发
-关于该handler的实现，根据在上文中分析，需要同时做到一边接收请求方数据并推送到响应方，一边接收响应方数据并回复到请求方。
+## director
 
-4. 负载均衡-balancer
+服务发现 / 负载均衡
 
-当实现了上述三点之后，proxy的基本功能已经可以满足了
-但是，负载均衡的功能一般都是会附带支持的，这里可以可以实现一个balancer的接口，通过不同的负载均衡算法对balancer的实现来支持到不同的负载均衡算法。
+## handler
+
+handler 实现 `A -> P, P -> B` 和 `B -> P, P -> A` 中间的数据转发
+
+# demo
+
+执行
+    make init
+    make run1
+    make run2
+    make run3
+
+其中 init 需要你安装了 protoc 和 protoc-gen-go
+
+demo 中的 B 和 P 分别使用端口 9100 和 21000
+
+# TODO
+
+如果看了 handler 的代码， 其实可以发现其中还是有很大的问题
+比如 读到的数据还需要多余的一次序列化、反序列化，能不能跳过序列化直接转发？
+比如 为了享受 HTTP2 的优势， 还是需要手动管理多个 conns
+
 

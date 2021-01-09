@@ -6,11 +6,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"io"
+	"time"
 )
-
-type handler struct {
-	director Director
-}
 
 var clientStreamDescForProxying = &grpc.StreamDesc{
 	ServerStreams: true,
@@ -18,31 +15,41 @@ var clientStreamDescForProxying = &grpc.StreamDesc{
 }
 
 // 该handler以gRPC server的模式来接受数据流，并将受到的数据转发到指定的connection中
-func (h *handler) handler(srv interface{}, StreamAnP grpc.ServerStream) (err error) {
+func handler(_ interface{}, StreamAnP grpc.ServerStream) (err error) {
 	// 获取请求流的目的 Method 名称
 	fullMethodName, ok := grpc.MethodFromServerStream(StreamAnP)
 	if !ok {
 		return status.Errorf(codes.Internal, "failed to get method from server stream")
 	}
-	// 根据请求流的 meta 信息，判断出正确的对应的目的方
-	// 返回一个到目的方的 connection，方便之后实现数据包的透明转发
-	outgoingCtx, backendConn, err := h.director(StreamAnP.Context(), fullMethodName)
+
+	// 根据请求流头部信息，判断出正确的对应的目的方
+	// 返回一个到目的方的 ip addr
+	endpoint, err := director(fullMethodName)
 	if err != nil {
 		return err
 	}
-	defer backendConn.Close()
+
+	var conn *grpc.ClientConn
+	if conn,ok = conns[endpoint]; !ok { // conn 复用
+		conn, err = grpc.DialContext(globalContext, endpoint, grpc.WithCodec(Codec()), grpc.WithInsecure(), grpc.WithTimeout(10*time.Millisecond))
+		if err != nil {
+			return err
+		}
+		conns[endpoint] = conn
+	}
 
 	// 新发起一个 Stream `Proxy <-> B`
-	CtxBnP, CancelBnP := context.WithCancel(outgoingCtx)
-	StreamBnP, err := grpc.NewClientStream(CtxBnP, clientStreamDescForProxying, backendConn, fullMethodName)
+	CtxBnP, CancelBnP := context.WithCancel(StreamAnP.Context())
+	StreamBnP, err := grpc.NewClientStream(CtxBnP, clientStreamDescForProxying, conn, fullMethodName)
 	if err != nil {
+		panic(err)
 		return err
 	}
 
 	// 发送，A->B
-	ErrChanA2B := h.forwardA2B(StreamAnP, StreamBnP)
+	ErrChanA2B := forwardA2B(StreamAnP, StreamBnP)
 	// 返回，B->A
-	ErrChanB2A := h.forwardB2A(StreamBnP, StreamAnP)
+	ErrChanB2A := forwardB2A(StreamBnP, StreamAnP)
 
 	// 数据流结束处理 & 错误处理
 	for i := 0; i < 2; i++ {
@@ -50,7 +57,7 @@ func (h *handler) handler(srv interface{}, StreamAnP grpc.ServerStream) (err err
 		case err = <-ErrChanA2B:
 			if err == io.EOF {
 				// 正常结束
-				StreamBnP.CloseSend()
+				_ = StreamBnP.CloseSend()
 				break
 			} else {
 				// 错误处理 (如链接断开、读错误等)
@@ -69,7 +76,7 @@ func (h *handler) handler(srv interface{}, StreamAnP grpc.ServerStream) (err err
 	return status.Errorf(codes.Internal, "proxy should never reach this stage.")
 }
 
-func (h *handler) forwardA2B(src grpc.ServerStream, dst grpc.ClientStream) chan error {
+func forwardA2B(src grpc.ServerStream, dst grpc.ClientStream) chan error {
 	ret := make(chan error, 1)
 	go func() {
 		// *frame即为我们自定义codec中使用到的数据结构
@@ -88,7 +95,7 @@ func (h *handler) forwardA2B(src grpc.ServerStream, dst grpc.ClientStream) chan 
 	return ret
 }
 
-func (h *handler) forwardB2A(src grpc.ClientStream, dst grpc.ServerStream) chan error {
+func forwardB2A(src grpc.ClientStream, dst grpc.ServerStream) chan error {
 	ret := make(chan error, 1)
 	go func() {
 		f := &frame{}
@@ -98,7 +105,7 @@ func (h *handler) forwardB2A(src grpc.ClientStream, dst grpc.ServerStream) chan 
 				break
 			}
 			if i == 0 {
-				// grpc中客户端到服务器的header只能在第一个客户端消息后才可以读取到，
+				// grpc 中客户端到服务器的header只能在第一个客户端消息后才可以读取到，
 				// 同时又必须在 flush 第一个msg之前写入到流中
 				md, err := src.Header()
 				if err != nil {
