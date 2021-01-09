@@ -2,8 +2,8 @@ package proxy
 
 import (
 	"fmt"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/fumeboy/grpc-go/codes"
+	"github.com/fumeboy/grpc-go/status"
 	"strings"
 )
 

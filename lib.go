@@ -3,7 +3,7 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"google.golang.org/grpc"
+	"github.com/fumeboy/grpc-go"
 	"net"
 )
 
