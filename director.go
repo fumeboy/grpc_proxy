@@ -30,16 +30,5 @@ func director(fullName string) (string, error) {
 		return "", status.Errorf(codes.Internal, "预料之外的格式")
 	}
 	endpoint := fakeBalancer(nodeName)
-
-	/*
-		如果要读 metadata ， 用下列代码
-
-		if md, ok := metadata.FromIncomingContext(s.Context()); ok {
-			if _, ok := md[key]; ok {
-				// ***
-			}
-		}
-	*/
-
 	return endpoint, nil
 }

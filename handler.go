@@ -29,6 +29,16 @@ func handler(_ interface{}, StreamAnP grpc.ServerStream) (err error) {
 		return err
 	}
 
+	/*
+		如果要读 metadata ， 用下列代码
+
+		if md, ok := metadata.FromIncomingContext(StreamAnP.Context()); ok {
+			if _, ok := md[key]; ok {
+				// ***
+			}
+		}
+	*/
+
 	var conn *grpc.ClientConn
 	if conn,ok = conns[endpoint]; !ok { // conn 复用
 		conn, err = grpc.DialContext(globalContext, endpoint, grpc.WithCodec(Codec()), grpc.WithInsecure(), grpc.WithTimeout(10*time.Millisecond))
