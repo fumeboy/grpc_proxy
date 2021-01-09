@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"google.golang.org/grpc"
+	"github.com/fumeboy/grpc-go"
 	"grpc_proxy/demo/A/guestbook"
 )
 

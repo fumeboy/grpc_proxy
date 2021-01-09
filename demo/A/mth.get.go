@@ -2,8 +2,8 @@ package main
 
 import (
 	"context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
+	"github.com/fumeboy/grpc-go"
+	"github.com/fumeboy/grpc-go/metadata"
 	"grpc_proxy/demo/A/guestbook"
 )
 

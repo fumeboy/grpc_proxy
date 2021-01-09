@@ -9,9 +9,9 @@ package guestbook
 import (
 	context "context"
 	proto "github.com/golang/protobuf/proto"
-	grpc "google.golang.org/grpc"
-	codes "google.golang.org/grpc/codes"
-	status "google.golang.org/grpc/status"
+	grpc "github.com/fumeboy/grpc-go"
+	codes "github.com/fumeboy/grpc-go/codes"
+	status "github.com/fumeboy/grpc-go/status"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -444,7 +444,7 @@ const _ = grpc.SupportPackageIsVersion6
 
 // GuestBookServiceClient is the client API for GuestBookService service.
 //
-// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
+// For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/github.com/fumeboy/grpc-go#ClientConn.NewStream.
 type GuestBookServiceClient interface {
 	//添加留言
 	Add(ctx context.Context, in *AddRequest, opts ...grpc.CallOption) (*AddResponse, error)
